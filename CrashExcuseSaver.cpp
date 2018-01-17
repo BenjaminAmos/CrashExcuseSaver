@@ -4,11 +4,15 @@
 #include <Path.h>
 #include <File.h>
 #include <FindDirectory.h>
-#include <Alert.h>
+#include <ListView.h>
+#include <StringItem.h>
+#include <ScrollView.h>
+#include <StringView.h>
 #include <cstdlib>
 #include <ctime>
 
 #include "CrashExcuseSaver.h"
+#include "ConfigView.h"
 
 bool IsInteger(const char integerCharacter)
 {
@@ -63,17 +67,27 @@ CrashExcuseSaver::CrashExcuseSaver(BMessage* message, image_id id)
 	: BScreenSaver(message, id)
 {
 	fErrors = new BStringList();
-}
+	fSearchPaths = new BStringList();
 
-CrashExcuseSaver::~CrashExcuseSaver()
-{
-	delete fErrors;
-}
-
-status_t
-CrashExcuseSaver::StartSaver(BView* screenView, bool isPreview)
-{
 	srand(time(NULL));
+
+	BMessage archive = BMessage('SvrA');
+	BFile file = BFile("~/config/settings/CrashExcuseSaver_settings", B_READ_ONLY);
+	if (file.InitCheck())
+	{
+		archive.Unflatten(&file);
+
+		int32 pathCount;
+		archive.FindInt32("pathCount", &pathCount);
+		for (int pathNo = 0; pathNo < pathCount; pathNo++)
+		{
+			BString nameString = "Path";
+			nameString << pathNo;
+			BString path;
+			archive.FindString(nameString.String(), &path);
+			fSearchPaths->Add(path);
+		}
+	}
 
 	if (fErrors->CountStrings() == 0)
 	{
@@ -81,15 +95,19 @@ CrashExcuseSaver::StartSaver(BView* screenView, bool isPreview)
 		find_directory(B_SYSTEM_DATA_DIRECTORY, &fortunesPath);
 		fortunesPath.Append("fortunes");
 		fortunesPath.Append("Tech Support Excuses");
+		fSearchPaths->Add(fortunesPath.Path());
+	}
 
-		BEntry fortuneErrorsEntry = BEntry(fortunesPath.Path());
+	for (int fileNo = 0; fileNo < fSearchPaths->CountStrings(); fileNo++)
+	{
+		BEntry errorEntry = BEntry(fSearchPaths->StringAt(fileNo));
 		entry_ref ref;
-		fortuneErrorsEntry.GetRef(&ref);
+		errorEntry.GetRef(&ref);
 		BFile errorsFile = BFile(&ref, B_READ_ONLY);
 
 		if (errorsFile.InitCheck() != B_OK)
 		{
-			return B_ERROR;
+			return;
 		}
 
 		off_t fileSize = 0;
@@ -102,7 +120,16 @@ CrashExcuseSaver::StartSaver(BView* screenView, bool isPreview)
 
 		fileData.Split("%\n", true, *fErrors);
 	}
+}
 
+CrashExcuseSaver::~CrashExcuseSaver()
+{
+	delete fErrors;
+}
+
+status_t
+CrashExcuseSaver::StartSaver(BView* screenView, bool isPreview)
+{
 	int32 randomErrorIndex = rand() % fErrors->CountStrings();
 	BString error = fErrors->StringAt(randomErrorIndex).Trim();
 
@@ -123,6 +150,12 @@ CrashExcuseSaver::StartSaver(BView* screenView, bool isPreview)
 
 	SetTickSize(5000000);
 	return B_OK;
+}
+
+void CrashExcuseSaver::StartConfig(BView* configView)
+{
+	ConfigView* view = new ConfigView(configView->Bounds(), fSearchPaths);
+	configView->AddChild(view);
 }
 
 void
